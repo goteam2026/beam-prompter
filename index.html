@@ -90,7 +90,26 @@ input[type=range] { width: 100%; accent-color: var(--amber); margin: 0; height: 
 .preview .pv-copy p { margin: 0 0 .5em; }
 .preview .pv-tag { position: absolute; right: 8px; bottom: 8px; font-family: var(--f-num); font-size: 11px; color: var(--muted); background: rgba(0,0,0,.7); padding: 2px 6px; border-radius: 4px; }
 .keys { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; font-size: 13px; color: var(--muted); }
-.keys kbd { font-family: var(--f-num); font-size: 12px; color: var(--fg); background: var(--raise); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; white-space: nowrap; justify-self: start; }
+.keylog { background: var(--raise); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: flex; flex-direction: column; gap: 3px; transition: border-color .15s; }
+.keylog.hit { border-color: color-mix(in srgb, var(--amber) 60%, var(--line)); }
+.keylog.miss { border-color: var(--tally); }
+.keylog.learning { border-color: var(--amber); box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 20%, transparent); }
+.kl-main { font-size: 15px; font-weight: 500; overflow-wrap: anywhere; }
+.kl-sub { font-family: var(--f-num); font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.maps { display: flex; flex-direction: column; }
+.map { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; padding-block: 8px; border-top: 1px solid var(--line); }
+.map:first-child { border-top: 0; }
+.map-name { font-size: 14px; }
+.chips { grid-column: 1; display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.map .assign { grid-column: 2; grid-row: 1 / span 2; padding: 6px 12px; }
+.map.learning .assign { color: var(--amber); border-color: var(--amber); }
+.chip { display: inline-flex; align-items: center; gap: 4px; background: transparent; border: 0; padding: 0; color: var(--muted); font-size: 12px; }
+.chip:hover kbd { border-color: var(--tally); }
+.none { font-size: 12px; color: var(--muted); }
+.hint.small { font-size: 12px; margin: 0; }
+#toast { position: absolute; top: calc(14px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 32px); box-sizing: border-box;
+  background: rgba(27,32,39,.96); border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; font-size: 14px; color: var(--fg); text-align: center; pointer-events: none; }
+.keys kbd, .chips kbd { font-family: var(--f-num); font-size: 12px; color: var(--fg); background: var(--raise); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; white-space: nowrap; justify-self: start; }
 
 /* ---------- Prompting stage ---------- */
 #stage { position: fixed; inset: 0; background: #000; z-index: 50; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
@@ -182,17 +201,13 @@ svg.ic { width: 20px; height: 20px; display: block; margin: auto; fill: currentC
           <div class="seg" data-key="countdown"><button type="button" data-v="0">Off</button><button type="button" data-v="3">3 s</button><button type="button" data-v="5">5 s</button></div></div>
       </div>
 
-      <div class="group">
-        <span class="label">While prompting</span>
-        <div class="keys">
-          <kbd>Tap</kbd><span>Play or pause</span>
-          <kbd>Drag</kbd><span>Scroll by hand</span>
-          <kbd>Space</kbd><span>Play or pause (keyboard or remote)</span>
-          <kbd>↑ ↓</kbd><span>Nudge back or forward a line</span>
-          <kbd>PgUp PgDn</kbd><span>Jump back or forward</span>
-          <kbd>← →</kbd><span>Slower or faster</span>
-          <kbd>Esc</kbd><span>Back to the editor</span>
-        </div>
+      <div class="group" id="remoteGroup">
+        <div class="row-head"><span class="label">Remote and keyboard</span><button class="ghost" id="remoteReset" type="button">Reset</button></div>
+        <label class="switch"><input type="checkbox" id="mediaKeys"><span class="track"></span>
+          <span>Catch media buttons<small>Lets play/pause and next/previous buttons reach the prompter. Pauses other audio on the iPad.</small></span></label>
+        <div class="keylog" id="keylog" aria-live="polite"><span class="kl-main"></span><span class="kl-sub"></span></div>
+        <div class="maps" id="maps"></div>
+        <p class="hint small">To change a button, tap Assign, then press that button on the remote. Tap a key below to remove it. On screen: tap to play or pause, drag to scroll by hand.</p>
       </div>
     </aside>
   </div>
@@ -206,6 +221,7 @@ svg.ic { width: 20px; height: 20px; display: block; margin: auto; fill: currentC
     <div id="tapHint">Tap anywhere to start</div>
   </div>
   <div id="progress"><i id="progressBar"></i></div>
+  <div id="toast" role="status" hidden></div>
   <div id="hud">
     <div class="cluster">
       <button type="button" id="exitBtn" aria-label="Back to editor">Edit</button>
@@ -241,7 +257,7 @@ svg.ic { width: 20px; height: 20px; display: block; margin: auto; fill: currentC
     "Your first day is all about setup. You'll get your laptop, your accounts, and a buddy who has been here a while and knows where everything lives. [look at camera 2]\n\n" +
     "By the end of the week you'll have met your team lead, joined your first client call, and shipped something small. That's the goal: something real, early.\n\n" +
     "We're glad you're here. Let's get started.";
-  var DEF = { fontSize: 72, lineHeight: 1.35, margin: 8, speed: 6, marker: 28, countdown: 3, mirrorX: true, flipY: false, align: 'left', caps: false };
+  var DEF = { fontSize: 72, lineHeight: 1.35, margin: 8, speed: 6, marker: 28, countdown: 3, mirrorX: true, flipY: false, align: 'left', caps: false, mediaKeys: true };
   var S = Object.assign({}, DEF);
   var text = SAMPLE;
 
@@ -249,6 +265,24 @@ svg.ic { width: 20px; height: 20px; display: block; margin: auto; fill: currentC
     var raw = localStorage.getItem(KEY);
     if (raw) { var o = JSON.parse(raw); if (o && o.s) Object.assign(S, o.s); if (o && typeof o.text === 'string') text = o.text; }
   } catch (e) {}
+
+  // Remote buttons. Defaults follow the generic teleprompter remote's manual:
+  // up = page up, down = page down, right = bigger text, left = smaller text, centre = play/pause, + / − = faster / slower.
+  var ACTIONS = [
+    ['toggle', 'Play / pause'], ['pageDown', 'Page down'], ['pageUp', 'Page up'],
+    ['bigger', 'Bigger text'], ['smaller', 'Smaller text'], ['faster', 'Faster'], ['slower', 'Slower'],
+    ['lineDown', 'Down one line'], ['lineUp', 'Up one line'], ['top', 'Back to top'], ['mirror', 'Mirror on / off'], ['exit', 'Back to editor']
+  ];
+  var DEFAULT_KEYS = {
+    toggle: [' ', 'Enter', 'k', 'media:play', 'media:pause'],
+    pageDown: ['ArrowDown', 'PageDown', 'media:nexttrack'],
+    pageUp: ['ArrowUp', 'PageUp', 'media:previoustrack'],
+    bigger: ['ArrowRight'], smaller: ['ArrowLeft'],
+    faster: ['+', '=', 'AudioVolumeUp', 'media:seekforward'], slower: ['-', '_', 'AudioVolumeDown', 'media:seekbackward'],
+    lineDown: [], lineUp: [], top: ['Home'], mirror: ['m'], exit: ['Escape']
+  };
+  if (!S.keymap || typeof S.keymap !== 'object') S.keymap = JSON.parse(JSON.stringify(DEFAULT_KEYS));
+  ACTIONS.forEach(function (p) { if (!Array.isArray(S.keymap[p[0]])) S.keymap[p[0]] = []; });
 
   var saveTimer;
   function save() {
@@ -424,6 +458,8 @@ svg.ic { width: 20px; height: 20px; display: block; margin: auto; fill: currentC
   }
 
   function enter() {
+    // Drop focus from the Start button, or a remote's Enter/Space would "click" it again and restart.
+    try { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); } catch (e) {}
     stage.hidden = false;
     document.body.classList.add('prompting');
     copy.innerHTML = buildCopy(text);
@@ -462,6 +498,8 @@ svg.ic { width: 20px; height: 20px; display: block; margin: auto; fill: currentC
   $('hudMirror').addEventListener('click', function () { S.mirrorX = !S.mirrorX; save(); layout(true); pokeHud(); });
   $('fsBtn').addEventListener('click', function () { toggleFs(); setTimeout(function () { layout(true); }, 300); });
   hud.addEventListener('pointerdown', function (e) { e.stopPropagation(); showHud(); });
+  // Same idea for the on-screen buttons: never leave one focused for the remote to press.
+  hud.addEventListener('click', function (e) { var b = e.target.closest('button'); if (b) b.blur(); });
 
   // Tap = play/pause, drag = scroll by hand
   var drag = null;
@@ -482,31 +520,198 @@ svg.ic { width: 20px; height: 20px; display: block; margin: auto; fill: currentC
     if (tapped) toggle(); else pokeHud();
   });
   stage.addEventListener('pointercancel', function () { drag = null; });
-  stage.addEventListener('wheel', function (e) { e.preventDefault(); nudge(e.deltaY); }, { passive: false });
+
+  /* ---------- Remote and keyboard ---------- */
+  var MODIFIERS = ['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'Fn', 'OS', 'AltGraph'];
+  var NAMES = { ' ': 'Space', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', PageUp: 'PgUp', PageDown: 'PgDn',
+    Escape: 'Esc', MediaPlayPause: 'Media play', AudioVolumeUp: 'Vol +', AudioVolumeDown: 'Vol −', MediaTrackNext: 'Next track', MediaTrackPrevious: 'Prev track',
+    'wheel:up': 'Scroll up', 'wheel:down': 'Scroll down',
+    'media:play': 'Media play', 'media:pause': 'Media pause', 'media:nexttrack': 'Next track', 'media:previoustrack': 'Previous track',
+    'media:seekforward': 'Fast-forward', 'media:seekbackward': 'Rewind', 'media:stop': 'Media stop' };
+  var learning = null, toastTimer = null;
+
+  function keyId(e) {
+    var k = e.key;
+    if (k && k !== 'Unidentified' && k !== 'Dead' && k !== 'Process') return k.length === 1 ? k.toLowerCase() : k;
+    if (e.code) return 'code:' + e.code;
+    return 'keycode:' + (e.keyCode || e.which || 0);
+  }
+  function keyLabel(id) {
+    if (NAMES[id]) return NAMES[id];
+    if (id.indexOf('code:') === 0) return id.slice(5);
+    if (id.indexOf('keycode:') === 0) return 'Key #' + id.slice(8);
+    return id.length === 1 ? id.toUpperCase() : id;
+  }
+  function actionFor(id) {
+    for (var i = 0; i < ACTIONS.length; i++) if (S.keymap[ACTIONS[i][0]].indexOf(id) >= 0) return ACTIONS[i][0];
+    return null;
+  }
+  function actName(a) { for (var i = 0; i < ACTIONS.length; i++) if (ACTIONS[i][0] === a) return ACTIONS[i][1]; return a; }
+  function escAttr(s) { return esc(s).replace(/"/g, '&quot;'); }
+
+  function renderMaps() {
+    $('maps').innerHTML = ACTIONS.map(function (p) {
+      var a = p[0], keys = S.keymap[a];
+      var chips = keys.length ? keys.map(function (k) {
+        return '<button type="button" class="chip" data-act="' + a + '" data-key="' + escAttr(k) + '" aria-label="Remove ' + escAttr(keyLabel(k)) + '"><kbd>' + esc(keyLabel(k)) + '</kbd><span aria-hidden="true">×</span></button>';
+      }).join('') : '<span class="none">Not set</span>';
+      return '<div class="map' + (learning === a ? ' learning' : '') + '"><span class="map-name">' + p[1] + '</span><span class="chips">' + chips + '</span>' +
+        '<button type="button" class="ghost assign" data-act="' + a + '">' + (learning === a ? 'Cancel' : 'Assign') + '</button></div>';
+    }).join('');
+  }
+  function logKey(main, sub, cls) {
+    var k = $('keylog');
+    k.className = 'keylog' + (cls ? ' ' + cls : '');
+    k.querySelector('.kl-main').textContent = main;
+    k.querySelector('.kl-sub').textContent = sub;
+  }
+  function idleLog() { logKey('Press a button on your remote', 'It shows up here so you can check what each button does.'); }
+
+  $('maps').addEventListener('click', function (e) {
+    var chip = e.target.closest('.chip');
+    if (chip) {
+      var ca = chip.dataset.act, ck = chip.dataset.key;
+      S.keymap[ca] = S.keymap[ca].filter(function (x) { return x !== ck; });
+      save(); renderMaps(); return;
+    }
+    var b = e.target.closest('.assign'); if (!b) return;
+    learning = learning === b.dataset.act ? null : b.dataset.act;
+    b.blur();
+    if (learning) logKey('Press the remote button for “' + actName(learning) + '”', 'Tap Cancel to stop.', 'learning');
+    else idleLog();
+    renderMaps();
+  });
+  $('remoteReset').addEventListener('click', function () {
+    S.keymap = JSON.parse(JSON.stringify(DEFAULT_KEYS)); learning = null; save(); renderMaps();
+    logKey('Remote buttons are back to the defaults', 'Press a button to test it.');
+  });
+
+  function toast(msg) {
+    var t = $('toast'); t.textContent = msg; t.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, 2500);
+  }
+  function runAction(a, e) {
+    e = e || {};
+    var H = stage.clientHeight;
+    switch (a) {
+      case 'toggle': if (!e.repeat) toggle(); break;
+      case 'pageDown': nudge(H * 0.4); break;
+      case 'pageUp': nudge(-H * 0.4); break;
+      case 'lineDown': nudge(lineH()); break;
+      case 'lineUp': nudge(-lineH()); break;
+      case 'bigger': setSize(6); break;
+      case 'smaller': setSize(-6); break;
+      case 'faster': setSpeed(1); break;
+      case 'slower': setSpeed(-1); break;
+      case 'top': pause(); offset = 0; paint(); break;
+      case 'mirror': if (!e.repeat) { S.mirrorX = !S.mirrorX; save(); layout(true); } break;
+      case 'exit': if (!e.repeat) exit(); break;
+    }
+  }
+
+  // One path for every kind of remote input: keys, scroll ticks and media buttons.
+  // Returns true when the input was used.
+  function handleInput(id, repeat, detail, src) {
+    if (learning) {
+      ACTIONS.forEach(function (p) { S.keymap[p[0]] = S.keymap[p[0]].filter(function (x) { return x !== id; }); });
+      S.keymap[learning].push(id);
+      logKey(keyLabel(id) + ' now does “' + actName(learning) + '”', 'Press it again to test.', 'hit');
+      learning = null; save(); renderMaps();
+      return true;
+    }
+    var a = actionFor(id);
+    if (stage.hidden) {
+      logKey(keyLabel(id) + '  →  ' + (a ? actName(a) : 'not assigned yet'), detail, a ? 'hit' : 'miss');
+      if (a === 'toggle' && !repeat) { enter(); play(); return true; }
+      return false;
+    }
+    if (a) { runAction(a, { repeat: repeat }); return true; }
+    if (src !== 'wheel') toast('The remote sent ' + keyLabel(id) + '. Assign it under Remote and keyboard in the editor.');
+    return false;
+  }
 
   document.addEventListener('keydown', function (e) {
-    if (stage.hidden) {
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); enter(); }
+    if (MODIFIERS.indexOf(e.key) >= 0) return;
+    if (!learning && (e.metaKey || e.ctrlKey || e.altKey)) {
+      if (stage.hidden && e.key === 'Enter') { e.preventDefault(); enter(); }
       return;
     }
-    var H = stage.clientHeight, used = true;
-    switch (e.key) {
-      case ' ': case 'Enter': case 'k': case 'K': toggle(); break;
-      case 'ArrowDown': nudge(lineH()); break;
-      case 'ArrowUp': nudge(-lineH()); break;
-      case 'PageDown': nudge(H * 0.4); break;
-      case 'PageUp': nudge(-H * 0.4); break;
-      case 'ArrowRight': setSpeed(1); break;
-      case 'ArrowLeft': setSpeed(-1); break;
-      case '+': case '=': setSize(6); break;
-      case '-': case '_': setSize(-6); break;
-      case 'm': case 'M': S.mirrorX = !S.mirrorX; save(); layout(true); break;
-      case 'Home': pause(); offset = 0; paint(); break;
-      case 'Escape': exit(); break;
-      default: used = false;
+    var typing = e.target && (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT');
+    if (stage.hidden && typing && !learning) return;
+    var id = keyId(e);
+    var detail = 'key ' + JSON.stringify(e.key) + ' · code ' + (e.code || '–') + ' · keyCode ' + (e.keyCode || 0);
+    var wasLearning = !!learning;
+    if (handleInput(id, e.repeat, detail, 'key') && (wasLearning || !stage.hidden || actionFor(id) === 'toggle')) {
+      e.preventDefault(); e.stopPropagation();
     }
-    if (used) e.preventDefault();
-  });
+  }, true);
+
+  // Scroll ticks. Some remotes send +/− as mouse-wheel scrolling. Unassigned, scrolling moves the text;
+  // once "Scroll up" / "Scroll down" is assigned, each scroll gesture fires that action once.
+  var lastWheel = 0;
+  function wheelId(e) { return e.deltaY > 0 ? 'wheel:down' : 'wheel:up'; }
+  stage.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    if (!e.deltaY) return;
+    var id = wheelId(e);
+    if (actionFor(id)) {
+      var now = performance.now();
+      if (now - lastWheel > 350) handleInput(id, false, '', 'wheel');
+      lastWheel = now;
+    } else nudge(e.deltaY);
+  }, { passive: false });
+  document.addEventListener('wheel', function (e) {
+    if (!stage.hidden || !e.deltaY) return;
+    var now = performance.now();
+    if (now - lastWheel > 350) handleInput(wheelId(e), false, 'scroll deltaY ' + Math.round(e.deltaY) + ' · deltaMode ' + e.deltaMode, 'wheel');
+    lastWheel = now;
+  }, { passive: true });
+
+  // Media buttons (play/pause, next/previous track). iPadOS sends these to whatever is "Now Playing",
+  // never to the page as keys. Playing a silent loop makes the prompter the Now Playing app so they arrive here.
+  var media = { el: null, url: null };
+  function silentWavUrl() {
+    var sr = 8000, n = sr, buf = new ArrayBuffer(44 + n), v = new DataView(buf);
+    function s(o, str) { for (var i = 0; i < str.length; i++) v.setUint8(o + i, str.charCodeAt(i)); }
+    s(0, 'RIFF'); v.setUint32(4, 36 + n, true); s(8, 'WAVE'); s(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, sr, true); v.setUint32(28, sr, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+    s(36, 'data'); v.setUint32(40, n, true);
+    for (var i = 0; i < n; i++) v.setUint8(44 + i, 128);
+    return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+  }
+  var MEDIA_ACTIONS = ['play', 'pause', 'nexttrack', 'previoustrack', 'seekforward', 'seekbackward', 'stop'];
+  function armMedia() {
+    if (!S.mediaKeys || media.el) return;
+    try {
+      media.url = media.url || silentWavUrl();
+      var el = new Audio(media.url);
+      el.loop = true; el.setAttribute('playsinline', '');
+      media.el = el;
+      var p = el.play();
+      if (p && p.catch) p.catch(function () { if (media.el === el) media.el = null; });
+    } catch (e) { media.el = null; return; }
+    if (!('mediaSession' in navigator)) return;
+    try { navigator.mediaSession.metadata = new MediaMetadata({ title: 'Beam Prompter', artist: 'Remote control on' }); } catch (e) {}
+    MEDIA_ACTIONS.forEach(function (act) {
+      try {
+        navigator.mediaSession.setActionHandler(act, function () {
+          if (media.el && media.el.paused) { var q = media.el.play(); if (q && q.catch) q.catch(function () {}); }
+          handleInput('media:' + act, false, 'media button "' + act + '"', 'media');
+        });
+      } catch (e) {}
+    });
+  }
+  function disarmMedia() {
+    if (media.el) { try { media.el.pause(); } catch (e) {} media.el = null; }
+    if ('mediaSession' in navigator) MEDIA_ACTIONS.forEach(function (act) { try { navigator.mediaSession.setActionHandler(act, null); } catch (e) {} });
+  }
+  // Audio may only start from a tap or key press, so arm on the first one.
+  document.addEventListener('pointerdown', armMedia, true);
+  document.addEventListener('keydown', armMedia, true);
+  var mk = $('mediaKeys');
+  mk.checked = !!S.mediaKeys;
+  mk.addEventListener('change', function () { S.mediaKeys = mk.checked; save(); if (S.mediaKeys) armMedia(); else disarmMedia(); });
   window.addEventListener('resize', function () { if (!stage.hidden) layout(true); });
 
   // Launched from the Home Screen it's already full screen, so drop that button.
@@ -517,7 +722,7 @@ svg.ic { width: 20px; height: 20px; display: block; margin: auto; fill: currentC
     navigator.serviceWorker.register('sw.js').catch(function () {});
   }
 
-  updateStats(); updatePreview(); setPlayIcon();
+  updateStats(); updatePreview(); setPlayIcon(); renderMaps(); idleLog();
 })();
 </script>
 </body>
