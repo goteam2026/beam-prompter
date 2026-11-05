@@ -107,6 +107,12 @@ input[type=range] { width: 100%; accent-color: var(--amber); margin: 0; height: 
 .chip:hover kbd { border-color: var(--tally); }
 .none { font-size: 12px; color: var(--muted); }
 .hint.small { font-size: 12px; margin: 0; }
+.mstat { font-size: 12px; color: var(--muted); }
+.mstat.on { color: var(--amber); }
+.inlog summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+.inlog ol { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 200px; overflow: auto;
+  font-family: var(--f-num); font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.inlog li b { color: var(--fg); font-weight: 500; }
 #toast { position: absolute; top: calc(14px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 32px); box-sizing: border-box;
   background: rgba(27,32,39,.96); border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; font-size: 14px; color: var(--fg); text-align: center; pointer-events: none; }
 .keys kbd, .chips kbd { font-family: var(--f-num); font-size: 12px; color: var(--fg); background: var(--raise); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; white-space: nowrap; justify-self: start; }
@@ -205,7 +211,9 @@ svg.ic { width: 20px; height: 20px; display: block; margin: auto; fill: currentC
         <div class="row-head"><span class="label">Remote and keyboard</span><button class="ghost" id="remoteReset" type="button">Reset</button></div>
         <label class="switch"><input type="checkbox" id="mediaKeys"><span class="track"></span>
           <span>Catch media buttons<small>Lets play/pause and next/previous buttons reach the prompter. Pauses other audio on the iPad.</small></span></label>
+        <div class="mstat" id="mediaStatus"></div>
         <div class="keylog" id="keylog" aria-live="polite"><span class="kl-main"></span><span class="kl-sub"></span></div>
+        <details class="inlog" open><summary>Input log: everything the iPad receives</summary><ol id="inputLog"><li>Nothing yet. Press a remote button.</li></ol></details>
         <div class="maps" id="maps"></div>
         <p class="hint small">To change a button, tap Assign, then press that button on the remote. Tap a key below to remove it. On screen: tap to play or pause, drag to scroll by hand.</p>
       </div>
@@ -278,11 +286,22 @@ svg.ic { width: 20px; height: 20px; display: block; margin: auto; fill: currentC
     pageDown: ['ArrowDown', 'PageDown', 'media:nexttrack'],
     pageUp: ['ArrowUp', 'PageUp', 'media:previoustrack'],
     bigger: ['ArrowRight'], smaller: ['ArrowLeft'],
-    faster: ['+', '=', 'AudioVolumeUp', 'media:seekforward'], slower: ['-', '_', 'AudioVolumeDown', 'media:seekbackward'],
+    // Scrolling up = faster, scrolling down = slower (the remote's + / − arrive as scrolling).
+    // A drag down moves the page up, so mouse-style drags follow the same direction.
+    faster: ['+', '=', 'AudioVolumeUp', 'media:seekforward', 'wheel:up', 'mouse:dragdown'],
+    slower: ['-', '_', 'AudioVolumeDown', 'media:seekbackward', 'wheel:down', 'mouse:dragup'],
     lineDown: [], lineUp: [], top: ['Home'], mirror: ['m'], exit: ['Escape']
   };
   if (!S.keymap || typeof S.keymap !== 'object') S.keymap = JSON.parse(JSON.stringify(DEFAULT_KEYS));
   ACTIONS.forEach(function (p) { if (!Array.isArray(S.keymap[p[0]])) S.keymap[p[0]] = []; });
+  // One-time update for iPads that already saved their own assignments: add the scroll defaults.
+  if ((S.keymapRev || 0) < 3) {
+    [['wheel:up', 'faster'], ['mouse:dragdown', 'faster'], ['wheel:down', 'slower'], ['mouse:dragup', 'slower']].forEach(function (m) {
+      ACTIONS.forEach(function (p) { S.keymap[p[0]] = S.keymap[p[0]].filter(function (x) { return x !== m[0]; }); });
+      S.keymap[m[1]].push(m[0]);
+    });
+    S.keymapRev = 3;
+  }
 
   var saveTimer;
   function save() {
@@ -505,6 +524,7 @@ svg.ic { width: 20px; height: 20px; display: block; margin: auto; fill: currentC
   var drag = null;
   stage.addEventListener('pointerdown', function (e) {
     if (e.target.closest('#hud')) return;
+    if (e.pointerType === 'mouse' && hasMouseMap()) return;   // handled as a remote gesture instead
     drag = { y: e.clientY, startY: e.clientY, moved: false };
     try { stage.setPointerCapture(e.pointerId); } catch (err) {}
   });
@@ -527,7 +547,9 @@ svg.ic { width: 20px; height: 20px; display: block; margin: auto; fill: currentC
     Escape: 'Esc', MediaPlayPause: 'Media play', AudioVolumeUp: 'Vol +', AudioVolumeDown: 'Vol −', MediaTrackNext: 'Next track', MediaTrackPrevious: 'Prev track',
     'wheel:up': 'Scroll up', 'wheel:down': 'Scroll down',
     'media:play': 'Media play', 'media:pause': 'Media pause', 'media:nexttrack': 'Next track', 'media:previoustrack': 'Previous track',
-    'media:seekforward': 'Fast-forward', 'media:seekbackward': 'Rewind', 'media:stop': 'Media stop' };
+    'media:seekforward': 'Fast-forward', 'media:seekbackward': 'Rewind', 'media:stop': 'Media stop',
+    'mouse:click': 'Pointer click', 'mouse:dragup': 'Pointer drag up', 'mouse:dragdown': 'Pointer drag down',
+    'mouse:dragleft': 'Pointer drag left', 'mouse:dragright': 'Pointer drag right' };
   var learning = null, toastTimer = null;
 
   function keyId(e) {
@@ -682,14 +704,24 @@ svg.ic { width: 20px; height: 20px; display: block; margin: auto; fill: currentC
   }
   var MEDIA_ACTIONS = ['play', 'pause', 'nexttrack', 'previoustrack', 'seekforward', 'seekbackward', 'stop'];
   function armMedia() {
-    if (!S.mediaKeys || media.el) return;
+    if (!S.mediaKeys) return;
+    if (media.el) {
+      if (media.el.paused) { var r = media.el.play(); if (r && r.catch) r.catch(function () {}); }
+      return;
+    }
     try {
       media.url = media.url || silentWavUrl();
       var el = new Audio(media.url);
       el.loop = true; el.setAttribute('playsinline', '');
+      el.addEventListener('playing', updateMediaStatus);
+      el.addEventListener('pause', function () { if (media.el === el) { logInput('media', 'the iPad paused the silent audio'); updateMediaStatus(); } });
       media.el = el;
       var p = el.play();
-      if (p && p.catch) p.catch(function () { if (media.el === el) media.el = null; });
+      if (p && p.catch) p.catch(function (err) {
+        logInput('media', 'could not start silent audio (' + (err && err.name || 'error') + ')');
+        if (media.el === el) media.el = null;
+        updateMediaStatus();
+      });
     } catch (e) { media.el = null; return; }
     if (!('mediaSession' in navigator)) return;
     try { navigator.mediaSession.metadata = new MediaMetadata({ title: 'Beam Prompter', artist: 'Remote control on' }); } catch (e) {}
@@ -697,6 +729,7 @@ svg.ic { width: 20px; height: 20px; display: block; margin: auto; fill: currentC
       try {
         navigator.mediaSession.setActionHandler(act, function () {
           if (media.el && media.el.paused) { var q = media.el.play(); if (q && q.catch) q.catch(function () {}); }
+          logInput('media button', act);
           handleInput('media:' + act, false, 'media button "' + act + '"', 'media');
         });
       } catch (e) {}
@@ -711,7 +744,78 @@ svg.ic { width: 20px; height: 20px; display: block; margin: auto; fill: currentC
   document.addEventListener('keydown', armMedia, true);
   var mk = $('mediaKeys');
   mk.checked = !!S.mediaKeys;
-  mk.addEventListener('change', function () { S.mediaKeys = mk.checked; save(); if (S.mediaKeys) armMedia(); else disarmMedia(); });
+  mk.addEventListener('change', function () { S.mediaKeys = mk.checked; save(); if (S.mediaKeys) armMedia(); else disarmMedia(); updateMediaStatus(); });
+
+  function updateMediaStatus() {
+    var m = $('mediaStatus'), on = S.mediaKeys && media.el && !media.el.paused;
+    m.className = 'mstat' + (on ? ' on' : '');
+    m.textContent = !S.mediaKeys ? 'Media buttons: off'
+      : on ? 'Media buttons: listening'
+      : !('mediaSession' in navigator) ? 'Media buttons: this browser does not support them'
+      : 'Media buttons: not listening yet. Tap anywhere once.';
+  }
+
+  /* ---------- Input log: shows every raw input, to identify what a remote sends ---------- */
+  function logInput(kind, detail) {
+    var ol = $('inputLog'); if (!ol) return;
+    if (ol.dataset.started !== '1') { ol.innerHTML = ''; ol.dataset.started = '1'; }
+    var d = new Date(), ts = [d.getHours(), d.getMinutes(), d.getSeconds()].map(function (n) { return String(n).padStart(2, '0'); }).join(':');
+    var li = document.createElement('li');
+    li.innerHTML = esc(ts) + ' <b>' + esc(kind) + '</b> ' + esc(detail || '');
+    ol.insertBefore(li, ol.firstChild);
+    while (ol.children.length > 20) ol.removeChild(ol.lastChild);
+  }
+  window.addEventListener('keydown', function (e) { logInput('key down', 'key ' + JSON.stringify(e.key) + ' · code ' + (e.code || '–') + ' · keyCode ' + (e.keyCode || 0)); }, true);
+  window.addEventListener('keyup', function (e) { logInput('key up', 'key ' + JSON.stringify(e.key) + ' · keyCode ' + (e.keyCode || 0)); }, true);
+  var logWheelAt = 0;
+  window.addEventListener('wheel', function (e) {
+    var now = performance.now(); if (now - logWheelAt < 250) return; logWheelAt = now;
+    logInput('scroll', 'deltaX ' + Math.round(e.deltaX) + ' · deltaY ' + Math.round(e.deltaY));
+  }, { capture: true, passive: true });
+  var downAt = null;
+  window.addEventListener('pointerdown', function (e) {
+    downAt = { x: e.clientX, y: e.clientY };
+    logInput('press', e.pointerType + ' at ' + Math.round(e.clientX) + ', ' + Math.round(e.clientY));
+  }, true);
+  window.addEventListener('pointerup', function (e) {
+    var mv = downAt ? ' · moved ' + Math.round(e.clientX - downAt.x) + ', ' + Math.round(e.clientY - downAt.y) : '';
+    logInput('release', e.pointerType + mv); downAt = null;
+  }, true);
+  document.addEventListener('visibilitychange', function () { logInput('page', document.visibilityState); });
+  window.addEventListener('blur', function () { logInput('page', 'lost focus'); });
+  window.addEventListener('focus', function () { logInput('page', 'got focus'); });
+
+  /* ---------- Mouse-style remotes: a button "clicks" or "drags" like a mouse ---------- */
+  // On iPad a finger is pointerType "touch"; a remote that pretends to be a mouse is "mouse",
+  // so its clicks and drags can be assigned without affecting normal touch.
+  function hasMouseMap() {
+    return ACTIONS.some(function (p) { return S.keymap[p[0]].some(function (k) { return k.indexOf('mouse:') === 0; }); });
+  }
+  var mg = null, eatClickUntil = 0;
+  document.addEventListener('pointerdown', function (e) {
+    if (e.pointerType !== 'mouse') return;
+    mg = { x: e.clientX, y: e.clientY, target: e.target };
+  }, true);
+  document.addEventListener('pointerup', function (e) {
+    if (e.pointerType !== 'mouse' || !mg) return;
+    var dx = e.clientX - mg.x, dy = e.clientY - mg.y, tgt = mg.target; mg = null;
+    var id = Math.hypot(dx, dy) < 10 ? 'mouse:click'
+      : Math.abs(dy) >= Math.abs(dx) ? (dy < 0 ? 'mouse:dragup' : 'mouse:dragdown')
+      : (dx < 0 ? 'mouse:dragleft' : 'mouse:dragright');
+    var onControl = tgt && tgt.closest && tgt.closest('button, input, textarea, label, summary, a');
+    if (learning) {
+      if (onControl) return;               // a real mouse clicking the panel's own buttons
+      handleInput(id, false, 'mouse-style ' + keyLabel(id).toLowerCase(), 'mouse');
+      eatClickUntil = performance.now() + 500; return;
+    }
+    if (!actionFor(id)) return;            // unassigned: behave like a normal tap or drag
+    if (stage.hidden) { if (onControl) return; handleInput(id, false, 'mouse-style ' + keyLabel(id).toLowerCase(), 'mouse'); }
+    else handleInput(id, false, '', 'mouse');
+    eatClickUntil = performance.now() + 500;
+  }, true);
+  document.addEventListener('click', function (e) {
+    if (performance.now() < eatClickUntil) { e.preventDefault(); e.stopPropagation(); eatClickUntil = 0; }
+  }, true);
   window.addEventListener('resize', function () { if (!stage.hidden) layout(true); });
 
   // Launched from the Home Screen it's already full screen, so drop that button.
@@ -722,7 +826,7 @@ svg.ic { width: 20px; height: 20px; display: block; margin: auto; fill: currentC
     navigator.serviceWorker.register('sw.js').catch(function () {});
   }
 
-  updateStats(); updatePreview(); setPlayIcon(); renderMaps(); idleLog();
+  updateStats(); updatePreview(); setPlayIcon(); renderMaps(); idleLog(); updateMediaStatus();
 })();
 </script>
 </body>

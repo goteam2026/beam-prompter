@@ -2,7 +2,7 @@
 // Serves everything from the cache straight away (so it works with no Wi-Fi on set)
 // and refreshes the cache in the background whenever there is a connection.
 // Bump VERSION after changing any file to force a clean re-cache.
-const VERSION = 'beam-prompter-v2';
+const VERSION = 'beam-prompter-v3';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 const FONT_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
 

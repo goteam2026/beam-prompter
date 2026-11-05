@@ -18,7 +18,9 @@ Scripts and settings are saved on the iPad only. The Home Screen app keeps its o
 - Text size, line spacing, side margins, alignment, all caps
 - Scroll speed, 3 s or 5 s countdown, movable amber reading line
 - Tap to play or pause, drag to scroll by hand
-- Bluetooth remotes and keyboards. Defaults: Space/Enter play/pause, ↑ ↓ page up/down, ← → text size, + − speed, Esc back to the editor
+- Bluetooth remotes and keyboards. Defaults: Space/Enter play/pause, ↑ ↓ page up/down, ← → text size, + − speed, scroll up faster / scroll down slower, Esc back to the editor
+- **Input log** in the editor lists every raw input the iPad receives (keys, scrolling, presses with their type, media buttons), to identify what an unknown remote sends
+- Mouse-style remotes (a cursor appears and buttons click or drag) can be assigned too; finger touches are never affected
 - **Remote and keyboard** panel: shows what each remote button sends, and lets you assign any button (keys, scroll, or media buttons) to any action
 - **Catch media buttons**: play/pause and next/previous buttons on remotes go to the iPad's media player, not the page. With this on, the app plays a silent loop so those buttons reach the prompter (it pauses other audio)
 - `[text in brackets]` shows as an amber cue
