@@ -1,0 +1,524 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Beam Prompter</title>
+<meta name="theme-color" content="#0b0d10">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Prompter">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans+Condensed:wght@400;500;600&display=swap">
+<style>
+/* Layout: studio control surface. Script on the left, rig settings on the right; prompting takes over the whole screen.
+   Single dark look on purpose: it's used next to a dark glass rig. */
+:root {
+  --ink: #0b0d10;
+  --panel: #13171c;
+  --raise: #1b2027;
+  --line: #2a313a;
+  --fg: #e9e7e2;
+  --muted: #8d95a0;
+  --amber: #ffb547;
+  --tally: #ff4b4b;
+  --paper: #ffffff;
+  --f-prompt: "Atkinson Hyperlegible", "Verdana", system-ui, sans-serif;
+  --f-ui: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-num: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body { margin: 0; }
+[hidden] { display: none !important; }
+body { background: var(--ink); color: var(--fg); font-family: var(--f-ui); font-size: 15px; -webkit-tap-highlight-color: transparent; }
+body.prompting { overflow: hidden; }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+/* ---------- Editor ---------- */
+.app { min-height: 100%; display: flex; flex-direction: column; gap: 16px; padding-block: calc(16px + env(safe-area-inset-top, 0px)) calc(24px + env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); max-width: 1280px; margin: 0 auto; box-sizing: border-box; }
+.top { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 20px; letter-spacing: .01em; }
+.tally { width: 10px; height: 10px; border-radius: 50%; background: var(--tally); box-shadow: 0 0 0 3px color-mix(in srgb, var(--tally) 25%, transparent); }
+.stats { color: var(--muted); font-family: var(--f-num); font-size: 13px; font-variant-numeric: tabular-nums; }
+.go { margin-left: auto; background: var(--amber); color: #1a1205; border: 0; border-radius: 10px; padding: 12px 20px; font-weight: 600; font-size: 16px; display: inline-flex; align-items: center; gap: 10px; }
+.go:hover { filter: brightness(1.06); }
+.work { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; flex: 1; min-height: 0; }
+@media (max-width: 860px) { .work { grid-template-columns: minmax(0, 1fr); } }
+
+.script { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.label { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 500; }
+.script-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; }
+.tools { display: flex; gap: 8px; }
+.ghost { background: transparent; border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; color: var(--muted); font-size: 13px; }
+.ghost:hover { color: var(--fg); border-color: var(--muted); }
+.ghost.armed { color: var(--tally); border-color: var(--tally); }
+textarea { flex: 1; min-height: 52vh; width: 100%; box-sizing: border-box; resize: vertical; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 12px;
+  padding: 18px 20px; font-family: var(--f-prompt); font-size: 18px; line-height: 1.6; }
+.hint { color: var(--muted); font-size: 13px; line-height: 1.5; max-width: 70ch; }
+.hint .cue { color: var(--amber); }
+
+.settings { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.group { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; }
+.row { display: flex; flex-direction: column; gap: 6px; }
+.row-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.row-head output { font-family: var(--f-num); font-size: 13px; color: var(--fg); font-variant-numeric: tabular-nums; }
+input[type=range] { width: 100%; accent-color: var(--amber); margin: 0; height: 28px; }
+.switch { display: flex; align-items: center; gap: 12px; cursor: pointer; user-select: none; }
+.switch input { position: absolute; opacity: 0; pointer-events: none; }
+.track { width: 42px; height: 24px; border-radius: 12px; background: var(--line); position: relative; flex: none; transition: background .15s; }
+.track::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--fg); transition: transform .15s; }
+.switch input:checked + .track { background: var(--amber); }
+.switch input:checked + .track::after { transform: translateX(18px); background: #1a1205; }
+.switch input:focus-visible + .track { outline: 2px solid var(--amber); outline-offset: 2px; }
+.switch small { display: block; color: var(--muted); font-size: 12px; }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { flex: 1; background: transparent; border: 0; padding: 7px 0; color: var(--muted); font-size: 13px; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed=true] { background: var(--raise); color: var(--fg); box-shadow: inset 0 -2px 0 var(--amber); }
+
+.preview { position: relative; aspect-ratio: 4 / 3; max-width: 100%; background: #000; border-radius: 10px; overflow: hidden; border: 1px solid var(--line); }
+.preview .pv-flip { position: absolute; inset: 0; }
+.preview .pv-copy { color: var(--paper); font-family: var(--f-prompt); font-weight: 700; padding-top: 22%; }
+.preview .pv-copy p { margin: 0 0 .5em; }
+.preview .pv-tag { position: absolute; right: 8px; bottom: 8px; font-family: var(--f-num); font-size: 11px; color: var(--muted); background: rgba(0,0,0,.7); padding: 2px 6px; border-radius: 4px; }
+.keys { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; font-size: 13px; color: var(--muted); }
+.keys kbd { font-family: var(--f-num); font-size: 12px; color: var(--fg); background: var(--raise); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; white-space: nowrap; justify-self: start; }
+
+/* ---------- Prompting stage ---------- */
+#stage { position: fixed; inset: 0; background: #000; z-index: 50; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+#flip { position: absolute; inset: 0; transform-origin: 50% 50%; }
+#scroller { will-change: transform; }
+#copy { color: var(--paper); font-family: var(--f-prompt); font-weight: 700; box-sizing: border-box; }
+#copy p { margin: 0 0 .6em; }
+.cue { color: var(--amber); font-weight: 400; font-style: italic; }
+#band { position: absolute; left: 0; right: 0; pointer-events: none; background: rgba(255,181,71,.07); border-top: 1px solid rgba(255,181,71,.25); border-bottom: 1px solid rgba(255,181,71,.25); }
+#band::before, #band::after { content: ""; position: absolute; top: 50%; transform: translateY(-50%); border: 14px solid transparent; }
+#band::before { left: 4px; border-left: 20px solid var(--amber); border-right-width: 0; }
+#band::after { right: 4px; border-right: 20px solid var(--amber); border-left-width: 0; }
+#countdown { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--f-prompt); font-weight: 700; font-size: 34vmin; color: var(--amber); pointer-events: none; }
+#tapHint { position: absolute; left: 0; right: 0; bottom: 30%; text-align: center; font-family: var(--f-ui); font-size: 20px; color: var(--muted); pointer-events: none; }
+
+#hud { position: absolute; left: 0; right: 0; bottom: 0; padding: 12px max(16px, env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  background: linear-gradient(to top, rgba(0,0,0,.92) 60%, rgba(0,0,0,0)); display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 10px 14px; transition: opacity .3s; }
+#hud.idle { opacity: 0; pointer-events: none; }
+#hud .cluster { display: flex; align-items: center; gap: 6px; background: rgba(27,32,39,.9); border: 1px solid var(--line); border-radius: 12px; padding: 4px; }
+#hud button { background: transparent; border: 0; border-radius: 8px; min-width: 44px; height: 44px; padding: 0 10px; font-size: 15px; color: var(--fg); }
+#hud button:hover { background: var(--raise); }
+#hud button[aria-pressed=true] { color: var(--amber); }
+#hud .val { font-family: var(--f-num); font-size: 13px; color: var(--muted); min-width: 66px; text-align: center; font-variant-numeric: tabular-nums; }
+#hud .play { background: var(--amber); color: #1a1205; min-width: 64px; }
+#hud .play:hover { background: var(--amber); filter: brightness(1.08); }
+#hud .play.live { background: var(--tally); color: #fff; }
+#progress { position: absolute; top: env(safe-area-inset-top, 0px); left: 0; right: 0; height: 3px; background: rgba(255,255,255,.08); }
+#progress i { display: block; height: 100%; background: var(--amber); transform-origin: 0 50%; transform: scaleX(0); }
+svg.ic { width: 20px; height: 20px; display: block; margin: auto; fill: currentColor; }
+@media (prefers-reduced-motion: reduce) { #hud, .track, .track::after { transition: none; } }
+</style>
+</head>
+<body>
+
+<main class="app" id="editor">
+  <div class="top">
+    <div class="brand"><span class="tally" aria-hidden="true"></span>Beam Prompter</div>
+    <div class="stats" id="stats"></div>
+    <button class="go" id="startBtn" type="button">Start prompting
+      <svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></button>
+  </div>
+
+  <div class="work">
+    <section class="script">
+      <div class="script-head">
+        <span class="label">Script</span>
+        <div class="tools">
+          <button class="ghost" id="sampleBtn" type="button">Load sample</button>
+          <button class="ghost" id="clearBtn" type="button">Clear</button>
+        </div>
+      </div>
+      <textarea id="script" spellcheck="true" aria-label="Script text"></textarea>
+      <p class="hint">Saved automatically on this device. Leave a blank line between paragraphs. Anything in <span class="cue">[square brackets]</span> shows in amber italics as a cue, like <span class="cue">[pause]</span> or <span class="cue">[look at camera 2]</span>.</p>
+    </section>
+
+    <aside class="settings">
+      <div class="group">
+        <span class="label">Rig</span>
+        <div class="preview" id="preview" aria-label="Preview of the prompter screen">
+          <div class="pv-flip" id="pvFlip"><div class="pv-copy" id="pvCopy"></div></div>
+          <span class="pv-tag" id="pvTag">iPad view</span>
+        </div>
+        <label class="switch"><input type="checkbox" id="mirrorX"><span class="track"></span>
+          <span>Mirror text<small>On for beam-splitter glass stands</small></span></label>
+        <label class="switch"><input type="checkbox" id="flipY"><span class="track"></span>
+          <span>Flip upside down<small>For rigs that reflect top to bottom</small></span></label>
+      </div>
+
+      <div class="group">
+        <span class="label">Text</span>
+        <div class="row"><div class="row-head"><label for="fontSize">Size</label><output id="fontSizeOut"></output></div>
+          <input type="range" id="fontSize" min="28" max="160" step="2"></div>
+        <div class="row"><div class="row-head"><label for="lineHeight">Line spacing</label><output id="lineHeightOut"></output></div>
+          <input type="range" id="lineHeight" min="1" max="2" step="0.05"></div>
+        <div class="row"><div class="row-head"><label for="margin">Side margins</label><output id="marginOut"></output></div>
+          <input type="range" id="margin" min="0" max="30" step="1"></div>
+        <div class="row"><span>Alignment</span>
+          <div class="seg" data-key="align"><button type="button" data-v="left">Left</button><button type="button" data-v="center">Center</button></div></div>
+        <label class="switch"><input type="checkbox" id="caps"><span class="track"></span><span>All caps</span></label>
+      </div>
+
+      <div class="group">
+        <span class="label">Scrolling</span>
+        <div class="row"><div class="row-head"><label for="speed">Speed</label><output id="speedOut"></output></div>
+          <input type="range" id="speed" min="1" max="20" step="1"></div>
+        <div class="row"><div class="row-head"><label for="marker">Reading line height</label><output id="markerOut"></output></div>
+          <input type="range" id="marker" min="10" max="60" step="1"></div>
+        <div class="row"><span>Countdown before scrolling</span>
+          <div class="seg" data-key="countdown"><button type="button" data-v="0">Off</button><button type="button" data-v="3">3 s</button><button type="button" data-v="5">5 s</button></div></div>
+      </div>
+
+      <div class="group">
+        <span class="label">While prompting</span>
+        <div class="keys">
+          <kbd>Tap</kbd><span>Play or pause</span>
+          <kbd>Drag</kbd><span>Scroll by hand</span>
+          <kbd>Space</kbd><span>Play or pause (keyboard or remote)</span>
+          <kbd>↑ ↓</kbd><span>Nudge back or forward a line</span>
+          <kbd>PgUp PgDn</kbd><span>Jump back or forward</span>
+          <kbd>← →</kbd><span>Slower or faster</span>
+          <kbd>Esc</kbd><span>Back to the editor</span>
+        </div>
+      </div>
+    </aside>
+  </div>
+</main>
+
+<div id="stage" hidden>
+  <div id="flip">
+    <div id="scroller"><div id="copy"></div></div>
+    <div id="band"></div>
+    <div id="countdown" hidden></div>
+    <div id="tapHint">Tap anywhere to start</div>
+  </div>
+  <div id="progress"><i id="progressBar"></i></div>
+  <div id="hud">
+    <div class="cluster">
+      <button type="button" id="exitBtn" aria-label="Back to editor">Edit</button>
+      <button type="button" id="restartBtn" aria-label="Back to the top">Top</button>
+    </div>
+    <div class="cluster">
+      <button type="button" id="slowerBtn" aria-label="Slower">−</button>
+      <span class="val" id="speedVal"></span>
+      <button type="button" id="fasterBtn" aria-label="Faster">+</button>
+    </div>
+    <div class="cluster">
+      <button type="button" class="play" id="playBtn" aria-label="Play"></button>
+    </div>
+    <div class="cluster">
+      <button type="button" id="smallerBtn" aria-label="Smaller text">A−</button>
+      <span class="val" id="timeVal"></span>
+      <button type="button" id="biggerBtn" aria-label="Bigger text">A+</button>
+    </div>
+    <div class="cluster">
+      <button type="button" id="hudMirror" aria-label="Mirror text">Mirror</button>
+      <button type="button" id="fsBtn" aria-label="Full screen">Full screen</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var KEY = 'beam-prompter.v1';
+  var SAMPLE = "Sample script. Replace this with your own.\n\n" +
+    "Hi, and welcome to the team. [smile] Over the next few minutes I'll walk you through how we work, who you'll be working with, and what your first week looks like.\n\n" +
+    "Before we start, a quick note on this screen. The text is mirrored so it reads correctly in the glass. Tap once to start scrolling and tap again to pause. [pause]\n\n" +
+    "If I'm reading too fast, the operator can slow things down with the minus button, or drag the text back up by hand.\n\n" +
+    "Your first day is all about setup. You'll get your laptop, your accounts, and a buddy who has been here a while and knows where everything lives. [look at camera 2]\n\n" +
+    "By the end of the week you'll have met your team lead, joined your first client call, and shipped something small. That's the goal: something real, early.\n\n" +
+    "We're glad you're here. Let's get started.";
+  var DEF = { fontSize: 72, lineHeight: 1.35, margin: 8, speed: 6, marker: 28, countdown: 3, mirrorX: true, flipY: false, align: 'left', caps: false };
+  var S = Object.assign({}, DEF);
+  var text = SAMPLE;
+
+  try {
+    var raw = localStorage.getItem(KEY);
+    if (raw) { var o = JSON.parse(raw); if (o && o.s) Object.assign(S, o.s); if (o && typeof o.text === 'string') text = o.text; }
+  } catch (e) {}
+
+  var saveTimer;
+  function save() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(function () { try { localStorage.setItem(KEY, JSON.stringify({ s: S, text: text })); } catch (e) {} }, 300);
+  }
+
+  function $(id) { return document.getElementById(id); }
+  function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+  function buildCopy(t) {
+    var paras = t.replace(/\r/g, '').split(/\n[ \t]*\n/).filter(function (p) { return p.trim().length; });
+    if (!paras.length) paras = ['[Your script is empty. Go back and add some text.]'];
+    return paras.map(function (p) {
+      return '<p>' + esc(p.trim()).replace(/\[([^\]\n]+)\]/g, '<span class="cue">[$1]</span>').replace(/\n/g, '<br>') + '</p>';
+    }).join('');
+  }
+  function words(t) { return (t.replace(/\[[^\]]*\]/g, ' ').match(/\S+/g) || []).length; }
+  function fmtTime(sec) { sec = Math.max(0, Math.round(sec)); return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0'); }
+
+  /* ---------- Editor wiring ---------- */
+  var ta = $('script');
+  ta.value = text;
+  function updateStats() {
+    var n = words(text);
+    $('stats').textContent = n + ' words · about ' + fmtTime(n / 150 * 60) + ' at a normal speaking pace';
+  }
+  ta.addEventListener('input', function () { text = ta.value; save(); updateStats(); updatePreview(); });
+
+  var ranges = {
+    fontSize: function (v) { return v + ' px'; },
+    lineHeight: function (v) { return Number(v).toFixed(2) + '×'; },
+    margin: function (v) { return v + '%'; },
+    speed: function (v) { return v + ' / 20'; },
+    marker: function (v) { return v + '% from top'; }
+  };
+  Object.keys(ranges).forEach(function (k) {
+    var el = $(k), out = $(k + 'Out');
+    el.value = S[k]; out.textContent = ranges[k](S[k]);
+    el.addEventListener('input', function () { S[k] = Number(el.value); out.textContent = ranges[k](S[k]); save(); updatePreview(); });
+  });
+  ['mirrorX', 'flipY', 'caps'].forEach(function (k) {
+    var el = $(k); el.checked = !!S[k];
+    el.addEventListener('change', function () { S[k] = el.checked; save(); updatePreview(); });
+  });
+  document.querySelectorAll('.seg').forEach(function (seg) {
+    var k = seg.dataset.key;
+    function sync() { seg.querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.v === String(S[k]))); }); }
+    seg.addEventListener('click', function (e) {
+      var b = e.target.closest('button'); if (!b) return;
+      S[k] = k === 'countdown' ? Number(b.dataset.v) : b.dataset.v; sync(); save(); updatePreview();
+    });
+    sync();
+  });
+
+  $('sampleBtn').addEventListener('click', function () { text = ta.value = SAMPLE; save(); updateStats(); updatePreview(); });
+  var clearArmed = null;
+  $('clearBtn').addEventListener('click', function () {
+    var b = $('clearBtn');
+    if (clearArmed) {
+      clearTimeout(clearArmed); clearArmed = null; b.classList.remove('armed'); b.textContent = 'Clear';
+      text = ta.value = ''; save(); updateStats(); updatePreview(); ta.focus();
+    } else {
+      b.classList.add('armed'); b.textContent = 'Tap again to clear';
+      clearArmed = setTimeout(function () { clearArmed = null; b.classList.remove('armed'); b.textContent = 'Clear'; }, 3000);
+    }
+  });
+
+  function styleCopy(el, scale) {
+    el.style.fontSize = (S.fontSize * scale) + 'px';
+    el.style.lineHeight = S.lineHeight;
+    el.style.paddingLeft = el.style.paddingRight = S.margin + '%';
+    el.style.textAlign = S.align;
+    el.style.textTransform = S.caps ? 'uppercase' : 'none';
+  }
+  function flipTransform() { return 'scale(' + (S.mirrorX ? -1 : 1) + ',' + (S.flipY ? -1 : 1) + ')'; }
+  function updatePreview() {
+    var pv = $('preview'), c = $('pvCopy');
+    c.innerHTML = buildCopy(text);
+    styleCopy(c, (pv.clientWidth || 300) / 1180);   // 1180 px ≈ iPad Air landscape width
+    $('pvFlip').style.transform = flipTransform();
+    $('pvTag').textContent = S.mirrorX || S.flipY ? 'As seen on iPad' : 'iPad view';
+  }
+  window.addEventListener('resize', updatePreview);
+
+  /* ---------- Prompting ---------- */
+  var stage = $('stage'), flip = $('flip'), scroller = $('scroller'), copy = $('copy'), band = $('band'), hud = $('hud');
+  var offset = 0, maxOffset = 0, playing = false, lastT = 0, raf = 0, counting = null, hudTimer = null, wake = null;
+
+  function lineH() { return S.fontSize * S.lineHeight; }
+  function pxPerSec() { return S.speed * S.fontSize * 0.09; }
+
+  function layout(keepRatio) {
+    var ratio = maxOffset ? offset / maxOffset : 0;
+    styleCopy(copy, 1);
+    var H = stage.clientHeight, top = H * S.marker / 100;
+    copy.style.paddingTop = top + 'px';
+    copy.style.paddingBottom = (H - top) + 'px';
+    band.style.top = top + 'px';
+    band.style.height = lineH() + 'px';
+    flip.style.transform = flipTransform();
+    maxOffset = Math.max(0, copy.scrollHeight - H);
+    if (keepRatio) offset = ratio * maxOffset;
+    clamp(); paint();
+  }
+  function clamp() { offset = Math.min(maxOffset, Math.max(0, offset)); }
+  function paint() {
+    scroller.style.transform = 'translate3d(0,' + (-offset) + 'px,0)';
+    $('progressBar').style.transform = 'scaleX(' + (maxOffset ? offset / maxOffset : 0) + ')';
+    $('timeVal').textContent = fmtTime((maxOffset - offset) / pxPerSec()) + ' left';
+    $('speedVal').textContent = 'Speed ' + S.speed;
+    $('hudMirror').setAttribute('aria-pressed', String(S.mirrorX));
+  }
+  function setPlayIcon() {
+    var b = $('playBtn');
+    b.innerHTML = playing
+      ? '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>'
+      : '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+    b.classList.toggle('live', playing);
+    b.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+  }
+
+  function loop(t) {
+    if (playing) {
+      var dt = Math.min(0.1, (t - lastT) / 1000);
+      offset += pxPerSec() * dt;
+      if (offset >= maxOffset) { offset = maxOffset; pause(); }
+      paint();
+    }
+    lastT = t;
+    raf = requestAnimationFrame(loop);
+  }
+
+  function play() {
+    if (counting) return;
+    if (offset >= maxOffset) offset = 0;
+    $('tapHint').hidden = true;
+    if (S.countdown > 0) {
+      var n = S.countdown, cd = $('countdown');
+      cd.hidden = false; cd.textContent = n;
+      counting = setInterval(function () {
+        n -= 1;
+        if (n <= 0) { clearInterval(counting); counting = null; cd.hidden = true; start(); }
+        else cd.textContent = n;
+      }, 1000);
+    } else start();
+    pokeHud();
+  }
+  function start() { playing = true; setPlayIcon(); pokeHud(); }
+  function pause() {
+    if (counting) { clearInterval(counting); counting = null; $('countdown').hidden = true; }
+    playing = false; setPlayIcon(); showHud();
+  }
+  function toggle() { (playing || counting) ? pause() : play(); }
+
+  function showHud() { hud.classList.remove('idle'); clearTimeout(hudTimer); }
+  function pokeHud() {
+    showHud();
+    if (playing || counting) hudTimer = setTimeout(function () { hud.classList.add('idle'); }, 2500);
+  }
+
+  function requestWake() {
+    try { if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (w) { wake = w; }).catch(function () {}); } catch (e) {}
+  }
+  document.addEventListener('visibilitychange', function () { if (!stage.hidden && document.visibilityState === 'visible') requestWake(); });
+
+  function isFs() { return document.fullscreenElement || document.webkitFullscreenElement; }
+  function toggleFs() {
+    try {
+      if (isFs()) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
+      var el = document.documentElement, fn = el.requestFullscreen || el.webkitRequestFullscreen;
+      if (fn) { var p = fn.call(el); if (p && p.catch) p.catch(function () {}); }
+    } catch (e) {}
+  }
+
+  function enter() {
+    stage.hidden = false;
+    document.body.classList.add('prompting');
+    copy.innerHTML = buildCopy(text);
+    offset = 0; playing = false; setPlayIcon();
+    $('tapHint').hidden = false;
+    layout(false);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { layout(true); });
+    showHud(); requestWake();
+    cancelAnimationFrame(raf); lastT = performance.now(); raf = requestAnimationFrame(loop);
+  }
+  function exit() {
+    pause();
+    cancelAnimationFrame(raf);
+    stage.hidden = true;
+    document.body.classList.remove('prompting');
+    try { if (wake) wake.release(); } catch (e) {} wake = null;
+    try { if (isFs()) (document.exitFullscreen || document.webkitExitFullscreen).call(document); } catch (e) {}
+    // settings may have changed from the HUD
+    ['fontSize', 'speed'].forEach(function (k) { $(k).value = S[k]; $(k + 'Out').textContent = ranges[k](S[k]); });
+    $('mirrorX').checked = S.mirrorX;
+    updatePreview();
+  }
+
+  function nudge(px) { offset += px; clamp(); paint(); pokeHud(); }
+  function setSpeed(d) { S.speed = Math.min(20, Math.max(1, S.speed + d)); save(); paint(); pokeHud(); }
+  function setSize(d) { S.fontSize = Math.min(160, Math.max(28, S.fontSize + d)); save(); layout(true); pokeHud(); }
+
+  $('startBtn').addEventListener('click', enter);
+  $('exitBtn').addEventListener('click', exit);
+  $('restartBtn').addEventListener('click', function () { pause(); offset = 0; paint(); });
+  $('playBtn').addEventListener('click', toggle);
+  $('slowerBtn').addEventListener('click', function () { setSpeed(-1); });
+  $('fasterBtn').addEventListener('click', function () { setSpeed(1); });
+  $('smallerBtn').addEventListener('click', function () { setSize(-6); });
+  $('biggerBtn').addEventListener('click', function () { setSize(6); });
+  $('hudMirror').addEventListener('click', function () { S.mirrorX = !S.mirrorX; save(); layout(true); pokeHud(); });
+  $('fsBtn').addEventListener('click', function () { toggleFs(); setTimeout(function () { layout(true); }, 300); });
+  hud.addEventListener('pointerdown', function (e) { e.stopPropagation(); showHud(); });
+
+  // Tap = play/pause, drag = scroll by hand
+  var drag = null;
+  stage.addEventListener('pointerdown', function (e) {
+    if (e.target.closest('#hud')) return;
+    drag = { y: e.clientY, startY: e.clientY, moved: false };
+    try { stage.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+  stage.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    var dy = e.clientY - drag.y; drag.y = e.clientY;
+    if (Math.abs(e.clientY - drag.startY) > 8) drag.moved = true;
+    if (drag.moved) { offset -= dy * (S.flipY ? -1 : 1); clamp(); paint(); showHud(); }
+  });
+  stage.addEventListener('pointerup', function () {
+    if (!drag) return;
+    var tapped = !drag.moved; drag = null;
+    if (tapped) toggle(); else pokeHud();
+  });
+  stage.addEventListener('pointercancel', function () { drag = null; });
+  stage.addEventListener('wheel', function (e) { e.preventDefault(); nudge(e.deltaY); }, { passive: false });
+
+  document.addEventListener('keydown', function (e) {
+    if (stage.hidden) {
+      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); enter(); }
+      return;
+    }
+    var H = stage.clientHeight, used = true;
+    switch (e.key) {
+      case ' ': case 'Enter': case 'k': case 'K': toggle(); break;
+      case 'ArrowDown': nudge(lineH()); break;
+      case 'ArrowUp': nudge(-lineH()); break;
+      case 'PageDown': nudge(H * 0.4); break;
+      case 'PageUp': nudge(-H * 0.4); break;
+      case 'ArrowRight': setSpeed(1); break;
+      case 'ArrowLeft': setSpeed(-1); break;
+      case '+': case '=': setSize(6); break;
+      case '-': case '_': setSize(-6); break;
+      case 'm': case 'M': S.mirrorX = !S.mirrorX; save(); layout(true); break;
+      case 'Home': pause(); offset = 0; paint(); break;
+      case 'Escape': exit(); break;
+      default: used = false;
+    }
+    if (used) e.preventDefault();
+  });
+  window.addEventListener('resize', function () { if (!stage.hidden) layout(true); });
+
+  // Launched from the Home Screen it's already full screen, so drop that button.
+  if (navigator.standalone || (window.matchMedia && matchMedia('(display-mode: standalone)').matches)) $('fsBtn').hidden = true;
+
+  // Offline support: cache the app after the first visit.
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    navigator.serviceWorker.register('sw.js').catch(function () {});
+  }
+
+  updateStats(); updatePreview(); setPlayIcon();
+})();
+</script>
+</body>
+</html>
